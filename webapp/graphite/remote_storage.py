@@ -9,6 +9,7 @@ from graphite.node import LeafNode, BranchNode
 from graphite.readers import FetchInProgress
 from graphite.logger import log
 from graphite.util import unpickle
+from graphite.render.hashing import compactHash
 
 
 
@@ -48,7 +49,8 @@ class FindRequest(object):
     else:
       end = ""
 
-    self.cacheKey = "find:%s:%s:%s:%s" % (store.host, query.pattern, start, end)
+    key = "find:%s:%s:%s:%s" % (store.host, query.pattern, start, end)
+    self.cacheKey = compactHash(key)
     self.cachedResult = None
 
   def send(self):
