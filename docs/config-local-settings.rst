@@ -37,11 +37,6 @@ LOG_CACHE_PERFORMANCE
   Triggers the creation of ``cache.log`` which logs timings for remote calls to `carbon-cache` as
   well as Request Cache (memcached) hits and misses.
 
-LOG_METRIC_ACCESS
-  `Default: False`
-
-  Trigges the creation of ``metricaccess.log`` which logs access to `Whisper` and `RRD` data files
-
 DEBUG = True
   `Default: False`
 
@@ -67,6 +62,21 @@ DEFAULT_CACHE_DURATION
 
   Default expiration of cached data and images.
 
+DEFAULT_CACHE_POLICY
+  `Default: []`
+
+  Metric data and graphs are cached for one minute by default. If defined, DEFAULT_CACHE_POLICY is a list of tuples of
+  minimum query time ranges mapped to the cache duration for the results. This allows for larger queries to be cached
+  for longer periods of times. All times are in seconds. An example configuration::
+
+    DEFAULT_CACHE_POLICY = [(0, 60), # default is 60 seconds
+                            (7200, 120), # >= 2 hour queries are cached 2 minutes
+                            (21600, 180)] # >= 6 hour queries are cached 3 minutes
+
+
+  This will cache any queries between 0 seconds and 2 hours for 1 minute, any queries between 2 and 6 hours for 2
+  minutes, and anything greater than 6 hours for 3 minutes. If the policy is empty or undefined, everything will be
+  cached for DEFAULT_CACHE_DURATION.
 
 Filesystem Paths
 ----------------
@@ -111,6 +121,9 @@ STATIC_ROOT
       location /static/ {
           alias /opt/graphite/static/;
       }
+
+  Alternatively, static files can be served directly by the Graphite webapp if
+  you install the ``whitenoise`` Python package.
 
 DASHBOARD_CONF
   `Default: CONF_DIR/dashboard.conf`
@@ -253,6 +266,15 @@ LDAP_USER_QUERY
 
   Sets the LDAP query to return a user object where ``%s`` substituted with the
   user id. E.g. ``(username=%s)`` or ``(sAMAccountName=%s)`` (Active Directory)
+
+LDAP_USER_DN_TEMPLATE:
+  `Default: ''`
+
+  Instead of using a hardcoded username and password for the account that binds
+  to the LDAP server you could use the credentials of the user that tries to
+  log in to Graphite. This is the template that creates the full DN to bind
+  with.
+
 
 
 Other Authentications

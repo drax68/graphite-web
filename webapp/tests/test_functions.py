@@ -319,7 +319,26 @@ class FunctionsTest(TestCase):
         with patch.dict(functions.SeriesFunctions,{ 'mock': mock }):
             results = functions.reduceSeries({}, copy.deepcopy(inputList), "mock", 2, "metric1","metric2" )
             self.assertEqual(results,expectedResult)
-        self.assertEqual(mock.mock_calls, [call({},inputList[0]), call({},inputList[1])])
+        self.assertEqual(mock.mock_calls,
+                         [call({},[inputList[0][0]],[inputList[0][1]]),
+                          call({},[inputList[1][0]],[inputList[1][1]])])
+
+    def test_reduceSeries_asPercent(self):
+        seriesList = [
+            TimeSeries('group.server1.bytes_used',0,1,1,[1]),
+            TimeSeries('group.server1.total_bytes',0,1,1,[2]),
+            TimeSeries('group.server2.bytes_used',0,1,1,[3]),
+            TimeSeries('group.server2.total_bytes',0,1,1,[4]),
+        ]
+        for series in seriesList:
+            series.pathExpression = "tempPath"
+        expectedResult   = [
+            TimeSeries('group.server1.reduce.asPercent',0,1,1,[50]), #100*1/2
+            TimeSeries('group.server2.reduce.asPercent',0,1,1,[75])  #100*3/4
+        ]
+        mappedResult = [seriesList[0]],[seriesList[1]], [seriesList[2]],[seriesList[3]]
+        results = functions.reduceSeries({}, copy.deepcopy(mappedResult), "asPercent", 2, "bytes_used", "total_bytes")
+        self.assertEqual(results,expectedResult)
 
     def test_pow(self):
         seriesList = self._generate_series_list()
@@ -412,3 +431,8 @@ class FunctionsTest(TestCase):
             'data': [],
         }, seriesList, '00:03 19700101', '00:08 19700101')
         self.assertEqual(results, expectedResult)
+
+    def test_legendValue_with_system_preserves_sign(self):
+        seriesList = [TimeSeries("foo", 0, 1, 1, [-10000, -20000, -30000, -40000])]
+        result = functions.legendValue({}, seriesList, "avg", "si")
+        self.assertEqual(result[0].name, "foo                 avg  -25.00K   ")

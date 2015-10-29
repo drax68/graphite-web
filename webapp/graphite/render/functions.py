@@ -12,28 +12,27 @@
 #See the License for the specific language governing permissions and
 #limitations under the License.
 
+import math
+import random
+import re
+import time
 
 from datetime import datetime, timedelta
 from itertools import izip, imap
-import math
-import re
-import random
-import time
+from os import environ
 
 from graphite.logger import log
 from graphite.render.attime import parseTimeOffset, parseATTime
-
 from graphite.events import models
+from graphite.util import epoch
 
-#XXX format_units() should go somewhere else
-from os import environ
+# XXX format_units() should go somewhere else
 if environ.get('READTHEDOCS'):
   format_units = lambda *args, **kwargs: (0,'')
 else:
   from graphite.render.glyph import format_units
   from graphite.render.datalib import TimeSeries
 
-from graphite.util import epoch
 
 NAN = float('NaN')
 INF = float('inf')
@@ -138,7 +137,6 @@ def normalize(seriesLists):
   if seriesLists:
     seriesList = reduce(lambda L1,L2: L1+L2,seriesLists)
     if seriesList:
-      seriesList = reduce(lambda L1,L2: L1+L2,seriesLists)
       step = reduce(lcm,[s.step for s in seriesList])
       for s in seriesList:
         s.consolidate( step / s.step )
@@ -152,6 +150,10 @@ class NormalizeEmptyResultError(Exception):
   # throw error for normalize() when empty
   pass
 
+
+def matchSeries(seriesList1, seriesList2):
+  assert len(seriesList2) == len(seriesList1), "The number of series in each argument must be the same"
+  return izip(sorted(seriesList1, lambda a,b: cmp(a.name, b.name)), sorted(seriesList2, lambda a,b: cmp(a.name, b.name)))
 
 def formatPathExpressions(seriesList):
    # remove duplicates
@@ -220,7 +222,7 @@ def sumSeriesWithWildcards(requestContext, seriesList, *position): #XXX
 
   for series in seriesList:
     newname = '.'.join(map(lambda x: x[1], filter(lambda i: i[0] not in positions, enumerate(series.name.split('.')))))
-    if newname in newSeries.keys():
+    if newname in newSeries:
       newSeries[newname] = sumSeries(requestContext, (series, newSeries[newname]))[0]
     else:
       newSeries[newname] = series
@@ -283,7 +285,7 @@ def multiplySeriesWithWildcards(requestContext, seriesList, *position): #XXX
 
   for series in seriesList:
     newname = '.'.join(map(lambda x: x[1], filter(lambda i: i[0] not in positions, enumerate(series.name.split('.')))))
-    if newname in newSeries.keys():
+    if newname in newSeries:
       newSeries[newname] = multiplySeries(requestContext, (newSeries[newname], series))[0]
     else:
       newSeries[newname] = series
@@ -505,7 +507,7 @@ def changed(requestContext, seriesList):
         series[i] = 0
   return seriesList
 
-def asPercent(requestContext, seriesList, total=None):
+def asPercent(requestContext, seriesList, seriesList2orNumber=None):
   """
 
   Calculates a percentage of the total of a wildcard series. If `total` is specified,
@@ -519,6 +521,7 @@ def asPercent(requestContext, seriesList, total=None):
   .. code-block:: none
 
     &target=asPercent(Server01.connections.{failed,succeeded}, Server01.connections.attempted)
+    &target=asPercent(Server*.connections.{failed,succeeded}, Server*.connections.attempted)
     &target=asPercent(apache01.threads.busy,1500)
     &target=asPercent(Server01.cpu.*.jiffies)
 
@@ -526,27 +529,38 @@ def asPercent(requestContext, seriesList, total=None):
 
   normalize([seriesList])
 
-  if total is None:
+  if seriesList2orNumber is None:
     totalValues = [ safeSum(row) for row in izip(*seriesList) ]
     totalText = None # series.pathExpression
-  elif isinstance(total, list):
-    if len(total) != 1:
-      raise ValueError("asPercent second argument must reference exactly 1 series")
-    normalize([seriesList, total])
-    totalValues = total[0]
-    totalText = totalValues.name
+  elif type(seriesList2orNumber) is list:
+    if len(seriesList2orNumber) != 1 and len(seriesList2orNumber) != len(seriesList):
+      raise ValueError("asPercent second argument must be missing, a single digit, reference exactly 1 series or reference the same mumber of series as the first argument")
+
+    if len(seriesList2orNumber) == 1:
+      normalize([seriesList, seriesList2orNumber])
+      totalValues = seriesList2orNumber[0]
+      totalText = totalValues.name
   else:
-    totalValues = [total] * len(seriesList[0])
-    totalText = str(total)
+    totalValues = [seriesList2orNumber] * len(seriesList[0])
+    totalText = str(seriesList2orNumber)
 
   resultList = []
-  for series in seriesList:
-    resultValues = [ safeMul(safeDiv(val, totalVal), 100.0) for val,totalVal in izip(series,totalValues) ]
+  if type(seriesList2orNumber) is list and len(seriesList2orNumber) == len(seriesList):
+    for series1, series2 in matchSeries(seriesList, seriesList2orNumber):
+      name = "asPercent(%s,%s)" % (series1.name,series2.name)
+      (seriesList,start,end,step) = normalize([(series1, series2)])
+      resultValues = [ safeMul(safeDiv(v1, v2), 100.0) for v1,v2 in izip(series1,series2) ]
+      resultSeries = TimeSeries(name,start,end,step,resultValues)
+      resultSeries.pathExpression = name
+      resultList.append(resultSeries)
+  else:
+    for series in seriesList:
+      resultValues = [ safeMul(safeDiv(val, totalVal), 100.0) for val,totalVal in izip(series,totalValues) ]
 
-    name = "asPercent(%s, %s)" % (series.name, totalText or series.pathExpression)
-    resultSeries = TimeSeries(name,series.start,series.end,series.step,resultValues)
-    resultSeries.pathExpression = name
-    resultList.append(resultSeries)
+      name = "asPercent(%s, %s)" % (series.name, totalText or series.pathExpression)
+      resultSeries = TimeSeries(name,series.start,series.end,series.step,resultValues)
+      resultSeries.pathExpression = name
+      resultList.append(resultSeries)
 
   return resultList
 
@@ -666,10 +680,10 @@ def weightedAverage(requestContext, seriesListAvg, seriesListWeight, node):
   sumWeights=sumSeries(requestContext, seriesListWeight)[0]
 
   resultValues = [ safeDiv(val1, val2) for val1,val2 in izip(sumProducts,sumWeights) ]
-  name = "weightedAverage(%s, %s)" % (','.join(set(s.pathExpression for s in seriesListAvg)) ,','.join(set(s.pathExpression for s in seriesListWeight)))
+  name = "weightedAverage(%s, %s, %s)" % (','.join(set(s.pathExpression for s in seriesListAvg)) ,','.join(set(s.pathExpression for s in seriesListWeight)), node)
   resultSeries = TimeSeries(name,sumProducts.start,sumProducts.end,sumProducts.step,resultValues)
   resultSeries.pathExpression = name
-  return resultSeries
+  return [resultSeries]
 
 def movingMedian(requestContext, seriesList, windowSize):
   """
@@ -1403,7 +1417,7 @@ def legendValue(requestContext, seriesList, *valueTypes):
         value = valueFunc(series)
         formatted = None
         if value is not None:
-          formatted = "%.2f%s" % format_units(abs(value), system=system)
+          formatted = "%.2f%s" % format_units(value, system=system)
         series.name = "%-20s%-5s%-10s" % (series.name, valueType, formatted)
   return seriesList
 
@@ -1978,6 +1992,25 @@ def useSeriesAbove(requestContext, seriesList, value, search, replace):
 
   return newSeries
 
+def fallbackSeries(requestContext, seriesList, fallback):
+    """
+    Takes a wildcard seriesList, and a second fallback metric.
+    If the wildcard does not match any series, draws the fallback metric.
+
+    Example:
+
+    .. code-block:: none
+
+      &target=fallbackSeries(server*.requests_per_second, constantLine(0))
+
+    Draws a 0 line when server metric does not exist.
+
+    """
+    if len(seriesList) > 0:
+        return seriesList
+    else:
+        return fallback
+
 def mostDeviant(requestContext, seriesList, n):
   """
   Takes one metric or a wildcard seriesList followed by an integer N.
@@ -2397,7 +2430,7 @@ def timeStack(requestContext, seriesList, timeShiftUnit, timeShiftStart, timeShi
   create a seriesList which is composed the original metric series stacked with time shifts
   starting time shifts from the start multiplier through the end multiplier
 
-  Useful for looking at history, or feeding into seriesAverage or seriesStdDev
+  Useful for looking at history, or feeding into averageSeries or stddevSeries.
 
   Example:
 
@@ -2472,7 +2505,7 @@ def timeShift(requestContext, seriesList, timeShift, resetEnd=True):
     series = seriesList[0]
 
     for shiftedSeries in evaluateTarget(myContext, series.pathExpression):
-      shiftedSeries.name = 'timeShift(%s, %s)' % (shiftedSeries.name, timeShift)
+      shiftedSeries.name = 'timeShift(%s, "%s")' % (shiftedSeries.name, timeShift)
       if resetEnd:
         shiftedSeries.end = series.end
       else:
@@ -2598,12 +2631,16 @@ def threshold(requestContext, value, label=None, color=None):
 
   return [series]
 
-def transformNull(requestContext, seriesList, default=0):
+def transformNull(requestContext, seriesList, default=0, referenceSeries=None):
   """
-  Takes a metric or wild card seriesList and an optional value
-  to transform Nulls to. Default is 0. This method compliments
-  drawNullAsZero flag in graphical mode but also works in text only
-  mode.
+  Takes a metric or wildcard seriesList and replaces null values with the value
+  specified by `default`.  The value 0 used if not specified.  The optional
+  referenceSeries, if specified, is a metric or wildcard series list that governs
+  which time intervals nulls should be replaced.  If specified, nulls are replaced
+  only in intervals where a non-null is found for the same interval in any of
+  referenceSeries.  This method compliments the drawNullAsZero function in
+  graphical mode, but also works in text-only mode.
+
   Example:
 
   .. code-block:: none
@@ -2613,24 +2650,34 @@ def transformNull(requestContext, seriesList, default=0):
   This would take any page that didn't have values and supply negative 1 as a default.
   Any other numeric value may be used as well.
   """
-  def transform(v):
-    if v is None: return default
+  def transform(v, d):
+    if v is None: return d
     else: return v
 
+  if referenceSeries:
+    defaults = [default if any(v is not None for v in x) else None for x in izip(*referenceSeries)]
+  else:
+    defaults = None
+
   for series in seriesList:
-    series.name = "transformNull(%s,%g)" % (series.name, default)
+    if referenceSeries:
+      series.name = "transformNull(%s,%g,referenceSeries)" % (series.name, default)
+    else:
+      series.name = "transformNull(%s,%g)" % (series.name, default)
     series.pathExpression = series.name
-    values = [transform(v) for v in series]
+    if defaults:
+      values = [transform(v, d) for v, d in izip(series, defaults)]
+    else:
+      values = [transform(v, default) for v in series]
     series.extend(values)
     del series[:len(values)]
   return seriesList
 
 def isNonNull(requestContext, seriesList):
   """
-  Takes a metric or wild card seriesList and counts up how many
-  non-null values are specified. This is useful for understanding
-  which metrics have data at a given point in time (ie, to count
-  which servers are alive).
+  Takes a metric or wildcard seriesList and counts up the number of non-null
+  values.  This is useful for understanding the number of metrics that have data
+  at a given point in time (i.e. to count which servers are alive).
 
   Example:
 
@@ -2803,7 +2850,7 @@ def reduceSeries(requestContext, seriesLists, reduceFunction, reduceNode, *reduc
         i = reduceMatchers.index(node)
         metaSeries[reduceSeriesName][i] = series
   for key in keys:
-    metaSeries[key] = SeriesFunctions[reduceFunction](requestContext,metaSeries[key])[0]
+    metaSeries[key] = SeriesFunctions[reduceFunction](requestContext,*[[l] for l in metaSeries[key]])[0]
     metaSeries[key].name = key
   return [ metaSeries[key] for key in keys ]
 
@@ -2827,7 +2874,7 @@ def groupByNode(requestContext, seriesList, nodeNum, callback):
   keys = []
   for series in seriesList:
     key = series.name.split(".")[nodeNum]
-    if key not in metaSeries.keys():
+    if key not in metaSeries:
       metaSeries[key] = [series]
       keys.append(key)
     else:
@@ -3348,6 +3395,7 @@ SeriesFunctions = {
   'divideSeries' : divideSeries,
 
   # Series Filter functions
+  'fallbackSeries' : fallbackSeries,
   'mostDeviant' : mostDeviant,
   'highestCurrent' : highestCurrent,
   'lowestCurrent' : lowestCurrent,
@@ -3401,7 +3449,9 @@ SeriesFunctions = {
   'substr' : substr,
   'group' : group,
   'map': mapSeries,
+  'mapSeries': mapSeries,
   'reduce': reduceSeries,
+  'reduceSeries': reduceSeries,
   'groupByNode' : groupByNode,
   'constantLine' : constantLine,
   'stacked' : stacked,

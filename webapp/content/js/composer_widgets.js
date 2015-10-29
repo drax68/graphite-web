@@ -297,7 +297,7 @@ function showShortUrl() {
     Ext.Ajax.request({
         method: 'GET',
         url: document.body.dataset.baseUrl + 's/render/?' + Composer.url.queryString,
-        callback: showUrl,
+        callback: showUrl
     });
 }
 
@@ -561,7 +561,7 @@ var GraphDataWindow = {
           menu: {
             subMenuAlign: 'tr-tl',
             defaults: {
-              defaultAlign: 'tr-tl',
+              defaultAlign: 'tr-tl'
             },
             items: [
               { text: 'Move Up', handler: this.moveTargetUp.createDelegate(this) },
@@ -1231,6 +1231,8 @@ function createOptionsMenu() {
     items: [
       menuRadioItem("yUnit", "Standard", "yUnitSystem", "si"),
       menuRadioItem("yUnit", "Binary", "yUnitSystem", "binary"),
+      menuRadioItem("yUnit", "Seconds", "yUnitSystem", "sec"),
+      menuRadioItem("yUnit", "Milliseconds", "yUnitSystem", "msec"),
       menuRadioItem("yUnit", "None", "yUnitSystem", "none")
 
     ]

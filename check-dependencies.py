@@ -109,22 +109,6 @@ except ImportError:
     required += 1
 
 
-# Test for a pytz module
-try:
-  import pytz
-except ImportError:
-  print "[FATAL] Unable to import the 'pytz' module, do you have pytz installed for python %s?" % py_version
-  fatal += 1
-
-
-# Test for zope.interface
-try:
-  from zope.interface import Interface
-except ImportError:
-  sys.stderr.write("[OPTIONAL] Unable to import Interface from zope.interface. Without it, you will be unable to run carbon on this server.\n")
-  optional +=1
-
-
 # Test for python-memcached
 try:
   import memcache
@@ -141,20 +125,6 @@ except ImportError:
   optional += 1
 
 
-# Test for Twisted python
-try:
-  import twisted
-except ImportError:
-  sys.stderr.write("[OPTIONAL] Unable to import the 'twisted' package, do you have Twisted installed for python %s? Without Twisted, you cannot run carbon on this server.\n" % py_version)
-  optional += 1
-else:
-  tv = []
-  tv = twisted.__version__.split('.')
-  if int(tv[0]) < 8 or (int(tv[0]) == 8 and int(tv[1]) < 2):
-    print "[OPTIONAL] Your version of Twisted is too old to run carbon. You will not be able to run carbon on this server until you upgrade Twisted >= 8.2.\n"
-    optional += 1
-
-
 # Test for txamqp
 try:
   import txamqp
@@ -169,6 +139,14 @@ try:
 except ImportError:
   sys.stderr.write("[OPTIONAL] Unable to import the 'python-rrdtool' module, this is required for reading RRD.\n")
   optional += 1
+
+
+# Test for whitenoise
+try:
+    import whitenoise
+except ImportError:
+    sys.stderr.write("[OPTIONAL] Unable to import the 'whitenoise' module. This is useful for serving static files.\n")
+    optional += 1
 
 
 if optional:
