@@ -81,6 +81,8 @@ try:
         'graphite.composer',
         'graphite.dashboard',
         'graphite.events',
+        'graphite.events.management',
+        'graphite.events.management.commands',
         'graphite.finders',
         'graphite.metrics',
         'graphite.render',
