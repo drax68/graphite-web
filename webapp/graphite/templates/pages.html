@@ -1,0 +1,18 @@
+<div align="center" class="page_buttons">
+    <span class="step-links">
+        {% if images.has_previous %}
+            <a href="{{ base_url }}/page/all/{{ images.previous_page_number }}">&larr;</a>
+        {% endif %}
+   {% for page in pages %}
+        {% ifnotequal page page_id %}
+      <a class="pages_links" href="{{ base_url }}/page/all/{{ page }}/"> {{ page }} </a>
+    {% endifnotequal %}
+    {% ifequal page page_id %}
+      <span class="c_page">{{ page }}</span>
+    {% endifequal %}
+   {% endfor %}
+        {% if images.has_next %}
+            <a href="{{ base_url }}/page/all/{{ images.next_page_number }}">&rarr;</a>
+        {% endif %}
+    </span>
+</div>

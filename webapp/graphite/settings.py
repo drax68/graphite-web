@@ -235,3 +235,9 @@ if SECRET_KEY == 'UNSAFE_DEFAULT':
   warn('SECRET_KEY is set to an unsafe default. This should be set in local_settings.py for better security')
 
 USE_TZ = True
+
+
+EVENTS_PER_PAGE = 50
+_PAGE_LINKS = 18
+APPEND_SLASH = True
+KEEP_EVENTS_DAYS = 180

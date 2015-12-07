@@ -42,6 +42,7 @@ graphite_urls = patterns(
     ('^whitelist/?', include('graphite.whitelist.urls')),
     ('^version/', include('graphite.version.urls')),
     ('^events/', include('graphite.events.urls')),
+    (r'^page/all/(\d+)/$', 'graphite.events.views.view_events'),
     url('^s/(?P<path>.*)',
         'graphite.url_shortener.views.shorten', name='shorten'),
     url('^S/(?P<link_id>[a-zA-Z0-9]+)/?$',
