@@ -36,7 +36,7 @@ class Event(models.Model):
             query = query.filter(when__lte=time_until)
 
 
-        result = list(query.order_by("when"))
+        result = list(query.order_by("-when"))
         return result
 
     def as_dict(self):
