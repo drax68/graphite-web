@@ -67,7 +67,7 @@ def index_json(request):
 
 def find_view(request):
   "View for finding metrics matching a given pattern"
-  profile = getProfile(request, allowDefault=False)
+  profile = getProfile(request)
   format = request.REQUEST.get('format', 'treejson')
   local_only = int( request.REQUEST.get('local', 0) )
   wildcards = int( request.REQUEST.get('wildcards', 0) )
