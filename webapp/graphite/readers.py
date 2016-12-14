@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from graphite.intervals import Interval, IntervalSet
 from graphite.carbonlink import CarbonLink
@@ -9,6 +10,16 @@ try:
   import whisper
 except ImportError:
   whisper = False
+
+# The parser was repalcing __readHeader with the <class>__readHeader
+# which was not working.
+if bool(whisper):
+  whisper__readHeader = whisper.__readHeader
+
+try:
+  import ceres
+except ImportError:
+  ceres = False
 
 try:
   import rrdtool
@@ -43,22 +54,27 @@ class MultiReader(object):
 
   def fetch(self, startTime, endTime):
     # Start the fetch on each node
-    results = [ n.fetch(startTime, endTime) for n in self.nodes ]
+    fetches = [ n.fetch(startTime, endTime) for n in self.nodes ]
 
-    # Wait for any asynchronous operations to complete
-    for i, result in enumerate(results):
-      if isinstance(result, FetchInProgress):
-        try:
-          results[i] = result.waitForResults()
-        except:
-          log.exception("Failed to complete subfetch")
-          results[i] = None
+    def merge_results():
+      results = {}
 
-    results = [r for r in results if r is not None]
-    if not results:
-      raise Exception("All sub-fetches failed")
+      # Wait for any asynchronous operations to complete
+      for i, result in enumerate(fetches):
+        if isinstance(result, FetchInProgress):
+          try:
+            results[i] = result.waitForResults()
+          except:
+            log.exception("Failed to complete subfetch")
+            results[i] = None
 
-    return reduce(self.merge, results)
+      results = [r for r in results.values() if r is not None]
+      if not results:
+        raise Exception("All sub-fetches failed")
+
+      return reduce(self.merge, results)
+
+    return FetchInProgress(merge_results)
 
   def merge(self, results1, results2):
     # Ensure results1 is finer than results2
@@ -105,7 +121,7 @@ class MultiReader(object):
 
 class CeresReader(object):
   __slots__ = ('ceres_node', 'real_metric_path')
-  supported = True
+  supported = bool(ceres)
 
   def __init__(self, ceres_node, real_metric_path):
     self.ceres_node = ceres_node
@@ -131,16 +147,12 @@ class CeresReader(object):
       log.exception("Failed CarbonLink query '%s'" % self.real_metric_path)
       cached_datapoints = []
 
-    for (timestamp, value) in cached_datapoints:
-      interval = timestamp - (timestamp % data.timeStep)
+    values = merge_with_cache(cached_datapoints,
+                              data.startTime,
+                              data.timeStep,
+                              values)
 
-      try:
-        i = int(interval - data.startTime) / data.timeStep
-        values[i] = value
-      except:
-        pass
-
-    return (time_info, values)
+    return time_info, values
 
 
 class WhisperReader(object):
@@ -165,12 +177,12 @@ class WhisperReader(object):
     (start,end,step) = time_info
 
     meta_info = whisper.info(self.fs_path)
+    aggregation_method = meta_info['aggregationMethod']
     lowest_step = min([i['secondsPerPoint'] for i in meta_info['archives']])
     # Merge in data from carbon's cache
     cached_datapoints = []
     try:
-        if step == lowest_step:
-            cached_datapoints = CarbonLink.query(self.real_metric_path)
+      cached_datapoints = CarbonLink.query(self.real_metric_path)
     except:
       log.exception("Failed CarbonLink query '%s'" % self.real_metric_path)
       cached_datapoints = []
@@ -178,16 +190,13 @@ class WhisperReader(object):
     if isinstance(cached_datapoints, dict):
       cached_datapoints = cached_datapoints.items()
 
-    for (timestamp, value) in cached_datapoints:
-      interval = timestamp - (timestamp % step)
+    values = merge_with_cache(cached_datapoints,
+                              start,
+                              step,
+                              values,
+                              aggregation_method)
 
-      try:
-        i = int(interval - start) / step
-        values[i] = value
-      except:
-        pass
-
-    return (time_info, values)
+    return time_info, values
 
 
 class GzippedWhisperReader(WhisperReader):
@@ -196,7 +205,7 @@ class GzippedWhisperReader(WhisperReader):
   def get_intervals(self):
     fh = gzip.GzipFile(self.fs_path, 'rb')
     try:
-      info = whisper.__readHeader(fh) # evil, but necessary.
+      info = whisper__readHeader(fh) # evil, but necessary.
     finally:
       fh.close()
 
@@ -215,8 +224,14 @@ class GzippedWhisperReader(WhisperReader):
 class RRDReader:
   supported = bool(rrdtool)
 
+  @staticmethod
+  def _convert_fs_path(fs_path):
+    if isinstance(fs_path, unicode):
+      fs_path = fs_path.encode(sys.getfilesystemencoding())
+    return os.path.realpath(fs_path)
+
   def __init__(self, fs_path, datasource_name):
-    self.fs_path = fs_path
+    self.fs_path = RRDReader._convert_fs_path(fs_path)
     self.datasource_name = datasource_name
 
   def get_intervals(self):
@@ -240,7 +255,7 @@ class RRDReader:
 
   @staticmethod
   def get_datasources(fs_path):
-    info = rrdtool.info(fs_path)
+    info = rrdtool.info(RRDReader._convert_fs_path(fs_path))
 
     if 'ds' in info:
       return [datasource_name for datasource_name in info['ds']]
@@ -251,7 +266,7 @@ class RRDReader:
 
   @staticmethod
   def get_retention(fs_path):
-    info = rrdtool.info(fs_path)
+    info = rrdtool.info(RRDReader._convert_fs_path(fs_path))
     if 'rra' in info:
       rras = info['rra']
     else:
@@ -269,3 +284,53 @@ class RRDReader:
         retention_points = points
 
     return  retention_points * info['step']
+
+
+def merge_with_cache(cached_datapoints, start, step, values, func=None):
+
+  consolidated=[]
+
+  # Similar to the function in render/datalib:TimeSeries
+  def consolidate(func, values):
+      usable = [v for v in values if v is not None]
+      if not usable: return None
+      if func == 'sum':
+          return sum(usable)
+      if func == 'average':
+          return float(sum(usable)) / len(usable)
+      if func == 'max':
+          return max(usable)
+      if func == 'min':
+          return min(usable)
+      raise Exception("Invalid consolidation function: '%s'" % func)
+
+  if func:
+      consolidated_dict = {}
+      for (timestamp, value) in cached_datapoints:
+          interval = timestamp - (timestamp % step)
+          if interval in consolidated_dict:
+              consolidated_dict[interval].append(value)
+          else:
+              consolidated_dict[interval] = [value]
+      for interval in consolidated_dict:
+          value = consolidate(func, consolidated_dict[interval])
+          consolidated.append((interval, value))
+
+  else:
+      consolidated = cached_datapoints
+
+  for (interval, value) in consolidated:
+      try:
+          i = int(interval - start) / step
+          if i < 0:
+              # cached data point is earlier then the requested data point.
+              # meaning we can definitely ignore the cache result.
+              # note that we cannot rely on the 'except'
+              # in this case since 'values[-n]='
+              # is equivalent to 'values[len(values) - n]='
+              continue
+          values[i] = value
+      except:
+          pass
+
+  return values

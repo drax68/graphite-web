@@ -5,9 +5,9 @@ import sys
 # Simple python version test
 major,minor = sys.version_info[:2]
 py_version = sys.version.split()[0]
-if major != 2 or minor < 6:
+if major != 2 or minor < 7:
   # SystemExit defaults to returning 1 when printing a string to stderr
-  raise SystemExit("You are using python %s, but version 2.6 or greater is required" % py_version)
+  raise SystemExit("You are using python %s, but version 2.7 or greater is required" % py_version)
 
 required = 0
 optional = 0
@@ -28,12 +28,13 @@ except ImportError:
     required += 1
 
 
-# Test for pycairo or cairocffi
+# Test for cairocffi or pycairo
 try:
-  import cairo
+  import cairocffi as cairo
 except ImportError:
+  sys.stderr.write("[REQUIRED] Unable to import the 'cairocffi' module, attempting to fall back to pycairo\n")
   try:
-    import cairocffi as cairo
+    import cairo
   except ImportError:
     sys.stderr.write("[REQUIRED] Unable to import the 'cairo' module, do you have pycairo installed for python %s?\n" % py_version)
     cairo = None
@@ -48,6 +49,7 @@ try:
 except Exception:
   sys.stderr.write("[REQUIRED] Failed to create an ImageSurface with cairo, you probably need to recompile cairo with PNG support\n")
   required += 1
+
 
 # Test that cairo can find fonts
 try:
@@ -93,8 +95,8 @@ except ImportError:
   required += 1
 
 
-if django and django.VERSION[:2] < (1,4):
-  sys.stderr.write("[REQUIRED] You have django version %s installed, but version 1.4 or greater is required\n" % django.get_version())
+if django and django.VERSION[:2] < (1,9):
+  sys.stderr.write("[REQUIRED] You have django version %s installed, but version 1.9 or greater is required\n" % django.get_version())
   required += 1
 
 
@@ -146,6 +148,14 @@ try:
     import whitenoise
 except ImportError:
     sys.stderr.write("[OPTIONAL] Unable to import the 'whitenoise' module. This is useful for serving static files.\n")
+    optional += 1
+
+
+# Test for pyhash
+try:
+    import pyhash
+except ImportError:
+    sys.stderr.write("[OPTIONAL] Unable to import the 'pyhash' module. This is useful for fnv1_ch hashing support.\n")
     optional += 1
 
 
