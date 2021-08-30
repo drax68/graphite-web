@@ -17,12 +17,14 @@ Graphite Documentation
    admin-webapp
    composer
    render_api
+   metrics_api
    functions
    dashboard
    whisper
    ceres
    storage-backends
    events
+   tags
    terminology
    tools
    development
