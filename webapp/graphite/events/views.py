@@ -10,7 +10,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.core.serializers.json import DjangoJSONEncoder
 from django.forms.models import model_to_dict
 from django.shortcuts import render, get_object_or_404
-from django.utils.timezone import now, make_aware
+from django.utils.timezone import now
 from django.core.paginator import Paginator, EmptyPage
 from django.views.decorators.cache import cache_page
 
@@ -18,9 +18,7 @@ from graphite.util import json, epoch, epoch_to_dt, jsonResponse, HttpError, Htt
 from graphite.events.models import Event
 from graphite.render.attime import parseATTime
 
-from graphite.settings import EVENTS_PER_PAGE, _PAGE_LINKS, DEFAULT_CACHE_DURATION
-
-from graphite.util import render_to
+from graphite.settings import EVENTS_PER_PAGE, _PAGE_LINKS
 
 class EventEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -55,7 +53,6 @@ def get_page_range(paginator, page):
 
 
 @cache_page(60 * 15)
-@render_to('events.html')
 def view_events(request, page_id=1):
 
     if request.method == "GET":
@@ -70,7 +67,11 @@ def view_events(request, page_id=1):
         except EmptyPage:
             events = paginator.page(paginator.num_pages)
         pages = get_page_range(paginator, page_id)
-        return locals()
+        context = {'events': events,
+                   'site': RequestSite(request),
+                   'pages': pages,
+                   'protocol': 'https' if request.is_secure() else 'http'}
+        return render(request, 'events.html', context)
     else:
         return post_event(request)
 
