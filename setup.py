@@ -30,7 +30,10 @@ except ImportError:
 with open('setup.cfg', 'r') as f:
     orig_setup_cfg = f.read()
 cf = ConfigParser()
-cf.readfp(StringIO(orig_setup_cfg), 'setup.cfg')
+try:
+    cf.readfp(StringIO(orig_setup_cfg), 'setup.cfg')
+except:
+    cf.read_file(StringIO(orig_setup_cfg), 'setup.cfg')
 
 if os.environ.get('GRAPHITE_NO_PREFIX') or os.environ.get('READTHEDOCS'):
     cf.remove_section('install')
